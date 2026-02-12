@@ -1,0 +1,1523 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quest Todo</title>
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <style>
+        body { margin: 0; padding: 0; background-color: #0a0a0f; color: white; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+    <script type="text/babel">
+        const { useState, useEffect, useRef, useCallback } = React;
+
+        const QUEST_TYPES = {
+          main: { label: "메인 퀘스트", icon: "⚔️", color: "#ff6b35", xpMult: 3 },
+          side: { label: "사이드 퀘스트", icon: "🗡️", color: "#4ecdc4", xpMult: 2 },
+          daily: { label: "데일리", icon: "🔄", color: "#a78bfa", xpMult: 1 },
+        };
+        
+        const DIFFICULTIES = [
+          { stars: 1, label: "쉬움", xp: 15, time: 5, color: "#4ade80" },
+          { stars: 2, label: "보통", xp: 30, time: 15, color: "#facc15" },
+          { stars: 3, label: "어려움", xp: 60, time: 30, color: "#f97316" },
+          { stars: 4, label: "보스급", xp: 100, time: 60, color: "#ef4444" },
+          { stars: 5, label: "레이드", xp: 200, time: 120, color: "#dc2626" },
+        ];
+        
+        const LEVEL_XP = (level) => level * 100 + 50;
+        
+        const TITLES = [
+          "수련생", "모험가", "전사", "용사", "영웅",
+          "챔피언", "전설", "신화", "불멸자", "초월자",
+        ];
+        
+        const AVATARS = [
+          { level: 0, emoji: "🥚", name: "알" },
+          { level: 2, emoji: "🐣", name: "병아리" },
+          { level: 4, emoji: "🐥", name: "아기새" },
+          { level: 6, emoji: "🦅", name: "독수리" },
+          { level: 8, emoji: "🐉", name: "드래곤" },
+          { level: 10, emoji: "🔥", name: "불사조" },
+        ];
+        
+        const getAvatar = (level) => {
+          let avatar = AVATARS[0];
+          for (const a of AVATARS) {
+            if (level >= a.level) avatar = a;
+          }
+          return avatar;
+        };
+        
+        const SAMPLE_QUESTS = [
+          { id: 1, text: "오픈클로 3강 스크립트 작성", type: "main", difficulty: 3, done: false },
+          { id: 2, text: "파주 빌라 대출 서류 준비", type: "main", difficulty: 4, done: false },
+          { id: 3, text: "블로그 글 초안 작성", type: "side", difficulty: 2, done: false },
+          { id: 4, text: "운동 30분", type: "daily", difficulty: 2, done: false },
+          { id: 5, text: "이메일 확인 & 답장", type: "daily", difficulty: 1, done: false },
+          { id: 6, text: "방 정리", type: "daily", difficulty: 1, done: false },
+        ];
+        
+        // Particle effect component
+        function Particles({ x, y, active }) {
+          if (!active) return null;
+          const particles = Array.from({ length: 12 }, (_, i) => {
+            const angle = (i / 12) * Math.PI * 2;
+            const dist = 40 + Math.random() * 30;
+            const colors = ["#ff6b35", "#4ecdc4", "#facc15", "#a78bfa", "#ff4081", "#00e5ff"];
+            return {
+              tx: Math.cos(angle) * dist,
+              ty: Math.sin(angle) * dist,
+              color: colors[i % colors.length],
+              size: 4 + Math.random() * 6,
+              delay: Math.random() * 0.1,
+            };
+          });
+        
+          return (
+            <div style={{ position: "fixed", left: x, top: y, pointerEvents: "none", zIndex: 9999 }}>
+              {particles.map((p, i) => (
+                <div
+                  key={i}
+                  style={{
+                    position: "absolute",
+                    width: p.size,
+                    height: p.size,
+                    borderRadius: "50%",
+                    backgroundColor: p.color,
+                    animation: `particle-fly 0.6s ease-out ${p.delay}s forwards`,
+                    transform: "translate(-50%, -50%)",
+                    "--tx": `${p.tx}px`,
+                    "--ty": `${p.ty}px`,
+                  }}
+                />
+              ))}
+            </div>
+          );
+        }
+        
+        // XP toast notification
+        function XPToast({ xp, combo, visible }) {
+          if (!visible) return null;
+          return (
+            <div
+              style={{
+                position: "fixed",
+                top: "50%",
+                left: "50%",
+                transform: "translate(-50%, -50%)",
+                zIndex: 9999,
+                animation: "xp-toast 1.2s ease-out forwards",
+                pointerEvents: "none",
+                textAlign: "center",
+              }}
+            >
+              <div style={{
+                fontSize: 48,
+                fontWeight: 900,
+                color: "#facc15",
+                textShadow: "0 0 20px rgba(250,204,21,0.6), 0 4px 8px rgba(0,0,0,0.5)",
+                fontFamily: "'Black Han Sans', sans-serif",
+              }}>
+                +{xp} XP
+              </div>
+              {combo > 1 && (
+                <div style={{
+                  fontSize: 24,
+                  fontWeight: 700,
+                  color: "#ff6b35",
+                  textShadow: "0 0 15px rgba(255,107,53,0.5)",
+                  marginTop: 4,
+                  fontFamily: "'Black Han Sans', sans-serif",
+                }}>
+                  🔥 {combo}x COMBO!
+                </div>
+              )}
+            </div>
+          );
+        }
+        
+        // Level up celebration
+        function LevelUpOverlay({ level, onClose }) {
+          return (
+            <div
+              onClick={onClose}
+              style={{
+                position: "fixed",
+                inset: 0,
+                background: "rgba(0,0,0,0.85)",
+                zIndex: 99999,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                animation: "fade-in 0.3s ease",
+                cursor: "pointer",
+              }}
+            >
+              <div style={{
+                textAlign: "center",
+                animation: "level-up-bounce 0.6s ease-out",
+              }}>
+                <div style={{ fontSize: 80, marginBottom: 16 }}>{getAvatar(level).emoji}</div>
+                <div style={{
+                  fontSize: 18,
+                  color: "#a78bfa",
+                  fontFamily: "'Black Han Sans', sans-serif",
+                  letterSpacing: 4,
+                  marginBottom: 8,
+                }}>
+                  LEVEL UP!
+                </div>
+                <div style={{
+                  fontSize: 72,
+                  fontWeight: 900,
+                  color: "#facc15",
+                  fontFamily: "'Black Han Sans', sans-serif",
+                  textShadow: "0 0 40px rgba(250,204,21,0.5)",
+                  lineHeight: 1,
+                }}>
+                  LV.{level}
+                </div>
+                <div style={{
+                  fontSize: 20,
+                  color: "#4ecdc4",
+                  marginTop: 12,
+                  fontFamily: "'Black Han Sans', sans-serif",
+                }}>
+                  {TITLES[Math.min(level - 1, TITLES.length - 1)]}
+                </div>
+                <div style={{
+                  fontSize: 13,
+                  color: "#666",
+                  marginTop: 24,
+                }}>
+                  탭하여 계속
+                </div>
+              </div>
+            </div>
+          );
+        }
+        
+        // Pomodoro Boss Fight
+        function BossFight({ onComplete, onCancel }) {
+          const [timeLeft, setTimeLeft] = useState(25 * 60);
+          const [isRunning, setIsRunning] = useState(false);
+          const [bossHP, setBossHP] = useState(100);
+          const [shaking, setShaking] = useState(false);
+        
+          useEffect(() => {
+            if (!isRunning || timeLeft <= 0) return;
+            const timer = setInterval(() => {
+              setTimeLeft((t) => {
+                const next = t - 1;
+                if (next <= 0) {
+                  setIsRunning(false);
+                  setBossHP(0);
+                  setTimeout(() => onComplete(), 1000);
+                  return 0;
+                }
+                return next;
+              });
+              setBossHP((hp) => {
+                const newHp = Math.max(0, 100 - ((25 * 60 - timeLeft + 1) / (25 * 60)) * 100);
+                return newHp;
+              });
+            }, 1000);
+            return () => clearInterval(timer);
+          }, [isRunning, timeLeft, onComplete]);
+        
+          useEffect(() => {
+            if (isRunning && timeLeft % 60 === 0 && timeLeft < 25 * 60) {
+              setShaking(true);
+              setTimeout(() => setShaking(false), 500);
+            }
+          }, [timeLeft, isRunning]);
+        
+          const mins = Math.floor(timeLeft / 60);
+          const secs = timeLeft % 60;
+          const progress = ((25 * 60 - timeLeft) / (25 * 60)) * 100;
+        
+          return (
+            <div style={{
+              position: "fixed",
+              inset: 0,
+              background: "radial-gradient(circle at 50% 30%, #1a0a2e, #0a0a0f)",
+              zIndex: 9999,
+              display: "flex",
+              flexDirection: "column",
+              alignItems: "center",
+              justifyContent: "center",
+              gap: 24,
+            }}>
+              <div style={{
+                fontSize: 14,
+                color: "#ff6b35",
+                fontFamily: "'Black Han Sans', sans-serif",
+                letterSpacing: 6,
+                textTransform: "uppercase",
+              }}>
+                ⚔️ BOSS FIGHT ⚔️
+              </div>
+        
+              <div style={{
+                fontSize: 80,
+                animation: shaking ? "boss-shake 0.5s ease" : (bossHP <= 0 ? "boss-die 1s ease forwards" : "boss-idle 3s ease infinite"),
+                filter: bossHP <= 30 ? "hue-rotate(30deg) saturate(1.5)" : "none",
+              }}>
+                {bossHP <= 0 ? "💀" : "🐲"}
+              </div>
+        
+              {/* Boss HP */}
+              <div style={{ width: 280, textAlign: "center" }}>
+                <div style={{ fontSize: 12, color: "#ef4444", marginBottom: 4, fontFamily: "'Black Han Sans', sans-serif" }}>
+                  BOSS HP: {Math.round(bossHP)}%
+                </div>
+                <div style={{
+                  height: 16,
+                  background: "#1a1a2e",
+                  borderRadius: 8,
+                  overflow: "hidden",
+                  border: "2px solid #333",
+                }}>
+                  <div style={{
+                    height: "100%",
+                    width: `${bossHP}%`,
+                    background: bossHP > 50 ? "linear-gradient(90deg, #ef4444, #f97316)" : bossHP > 20 ? "#f97316" : "#ef4444",
+                    transition: "width 1s linear",
+                    borderRadius: 6,
+                    boxShadow: "0 0 10px rgba(239,68,68,0.5)",
+                  }} />
+                </div>
+              </div>
+        
+              {/* Timer */}
+              <div style={{
+                fontSize: 64,
+                fontWeight: 900,
+                color: "#fff",
+                fontFamily: "'Black Han Sans', sans-serif",
+                textShadow: "0 0 20px rgba(167,139,250,0.4)",
+                letterSpacing: 4,
+              }}>
+                {String(mins).padStart(2, "0")}:{String(secs).padStart(2, "0")}
+              </div>
+        
+              {/* Progress ring */}
+              <div style={{
+                width: 240,
+                height: 8,
+                background: "#1a1a2e",
+                borderRadius: 4,
+                overflow: "hidden",
+              }}>
+                <div style={{
+                  height: "100%",
+                  width: `${progress}%`,
+                  background: "linear-gradient(90deg, #a78bfa, #4ecdc4)",
+                  transition: "width 1s linear",
+                  borderRadius: 4,
+                }} />
+              </div>
+        
+              <div style={{ display: "flex", gap: 12, marginTop: 16 }}>
+                {!isRunning ? (
+                  <button
+                    onClick={() => setIsRunning(true)}
+                    style={{
+                      padding: "12px 32px",
+                      background: "linear-gradient(135deg, #ff6b35, #ef4444)",
+                      border: "none",
+                      borderRadius: 12,
+                      color: "#fff",
+                      fontSize: 16,
+                      fontWeight: 700,
+                      cursor: "pointer",
+                      fontFamily: "'Black Han Sans', sans-serif",
+                      letterSpacing: 2,
+                    }}
+                  >
+                    {timeLeft < 25 * 60 ? "▶ 계속" : "⚔️ 전투 시작"}
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setIsRunning(false)}
+                    style={{
+                      padding: "12px 32px",
+                      background: "#333",
+                      border: "2px solid #555",
+                      borderRadius: 12,
+                      color: "#fff",
+                      fontSize: 16,
+                      cursor: "pointer",
+                      fontFamily: "'Black Han Sans', sans-serif",
+                    }}
+                  >
+                    ⏸ 일시정지
+                  </button>
+                )}
+                <button
+                  onClick={onCancel}
+                  style={{
+                    padding: "12px 24px",
+                    background: "transparent",
+                    border: "2px solid #444",
+                    borderRadius: 12,
+                    color: "#888",
+                    fontSize: 14,
+                    cursor: "pointer",
+                  }}
+                >
+                  도망치기
+                </button>
+              </div>
+            </div>
+          );
+        }
+        
+        // Random quest roulette
+        function QuestRoulette({ quests, onSelect, onClose }) {
+          const [spinning, setSpinning] = useState(false);
+          const [selected, setSelected] = useState(null);
+          const [currentIdx, setCurrentIdx] = useState(0);
+          const pending = quests.filter((q) => !q.done);
+        
+          useEffect(() => {
+            if (!spinning) return;
+            let count = 0;
+            const maxCount = 15 + Math.floor(Math.random() * 10);
+            const interval = setInterval(() => {
+              setCurrentIdx((i) => (i + 1) % pending.length);
+              count++;
+              if (count >= maxCount) {
+                clearInterval(interval);
+                setSpinning(false);
+                const final = Math.floor(Math.random() * pending.length);
+                setCurrentIdx(final);
+                setSelected(pending[final]);
+              }
+            }, spinning ? 80 + count * 8 : 100);
+            return () => clearInterval(interval);
+          }, [spinning]);
+        
+          if (pending.length === 0) {
+            return (
+              <div style={{
+                position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)", zIndex: 9999,
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}>
+                <div style={{ textAlign: "center", color: "#fff" }}>
+                  <div style={{ fontSize: 48, marginBottom: 16 }}>🎉</div>
+                  <div style={{ fontSize: 20, fontFamily: "'Black Han Sans', sans-serif" }}>모든 퀘스트를 클리어했습니다!</div>
+                  <button onClick={onClose} style={{
+                    marginTop: 16, padding: "8px 24px", background: "#4ecdc4", border: "none",
+                    borderRadius: 8, color: "#0a0a0f", fontWeight: 700, cursor: "pointer",
+                  }}>닫기</button>
+                </div>
+              </div>
+            );
+          }
+        
+          return (
+            <div
+              onClick={(e) => e.target === e.currentTarget && onClose()}
+              style={{
+                position: "fixed", inset: 0, background: "rgba(0,0,0,0.85)", zIndex: 9999,
+                display: "flex", alignItems: "center", justifyContent: "center",
+              }}
+            >
+              <div style={{
+                background: "#12121f",
+                borderRadius: 20,
+                padding: "32px 40px",
+                textAlign: "center",
+                border: "2px solid #252540",
+                minWidth: 320,
+              }}>
+                <div style={{
+                  fontSize: 14, color: "#a78bfa", letterSpacing: 4, marginBottom: 20,
+                  fontFamily: "'Black Han Sans', sans-serif",
+                }}>
+                  🎰 랜덤 퀘스트
+                </div>
+        
+                <div style={{
+                  padding: "20px 24px",
+                  background: spinning ? "#1a1a35" : (selected ? "#1a2a1f" : "#1a1a2e"),
+                  borderRadius: 12,
+                  marginBottom: 24,
+                  minHeight: 60,
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  border: selected ? "2px solid #4ecdc4" : "2px solid #252540",
+                  transition: "all 0.2s",
+                }}>
+                  <span style={{
+                    fontSize: 18,
+                    color: "#fff",
+                    fontFamily: "'Black Han Sans', sans-serif",
+                  }}>
+                    {spinning ? (
+                      <>
+                        {QUEST_TYPES[pending[currentIdx]?.type]?.icon}{" "}
+                        {pending[currentIdx]?.text}
+                      </>
+                    ) : selected ? (
+                      <>
+                        {QUEST_TYPES[selected.type]?.icon}{" "}
+                        {selected.text}
+                      </>
+                    ) : (
+                      "버튼을 눌러 뽑기!"
+                    )}
+                  </span>
+                </div>
+        
+                <div style={{ display: "flex", gap: 12, justifyContent: "center" }}>
+                  {!selected ? (
+                    <button
+                      onClick={() => { setSpinning(true); setSelected(null); }}
+                      disabled={spinning}
+                      style={{
+                        padding: "12px 32px",
+                        background: spinning ? "#444" : "linear-gradient(135deg, #a78bfa, #7c3aed)",
+                        border: "none",
+                        borderRadius: 12,
+                        color: "#fff",
+                        fontSize: 16,
+                        fontWeight: 700,
+                        cursor: spinning ? "wait" : "pointer",
+                        fontFamily: "'Black Han Sans', sans-serif",
+                      }}
+                    >
+                      {spinning ? "뽑는 중..." : "🎲 뽑기!"}
+                    </button>
+                  ) : (
+                    <>
+                      <button
+                        onClick={() => { onSelect(selected); onClose(); }}
+                        style={{
+                          padding: "12px 24px",
+                          background: "linear-gradient(135deg, #4ecdc4, #2db5a8)",
+                          border: "none", borderRadius: 12, color: "#0a0a0f",
+                          fontSize: 15, fontWeight: 700, cursor: "pointer",
+                          fontFamily: "'Black Han Sans', sans-serif",
+                        }}
+                      >
+                        이거 할래!
+                      </button>
+                      <button
+                        onClick={() => { setSelected(null); setSpinning(true); }}
+                        style={{
+                          padding: "12px 24px",
+                          background: "#333", border: "2px solid #555",
+                          borderRadius: 12, color: "#fff",
+                          fontSize: 15, cursor: "pointer",
+                        }}
+                      >
+                        다시 뽑기
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        }
+        
+        function QuestTodo() {
+          const [quests, setQuests] = useState(SAMPLE_QUESTS);
+          const [xp, setXp] = useState(0);
+          const [level, setLevel] = useState(1);
+          const [combo, setCombo] = useState(0);
+          const [lastComplete, setLastComplete] = useState(0);
+          const [particles, setParticles] = useState(null);
+          const [xpToast, setXpToast] = useState(null);
+          const [levelUpShow, setLevelUpShow] = useState(null);
+          const [focusMode, setFocusMode] = useState(false);
+          const [focusQuest, setFocusQuest] = useState(null);
+          const [showAdd, setShowAdd] = useState(false);
+          const [newText, setNewText] = useState("");
+          const [newType, setNewType] = useState("daily");
+          const [newDiff, setNewDiff] = useState(1);
+          const [showBoss, setShowBoss] = useState(false);
+          const [showRoulette, setShowRoulette] = useState(false);
+          const [filter, setFilter] = useState("all");
+          const [brainDump, setBrainDump] = useState("");
+          const [showDump, setShowDump] = useState(false);
+          const [totalCompleted, setTotalCompleted] = useState(0);
+        
+          const comboTimerRef = useRef(null);
+        
+          const completeQuest = useCallback((quest, e) => {
+            if (quest.done) return;
+        
+            // Particles
+            const rect = e?.currentTarget?.getBoundingClientRect();
+            if (rect) {
+              setParticles({ x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 });
+              setTimeout(() => setParticles(null), 800);
+            }
+        
+            // Combo
+            const now = Date.now();
+            const timeSinceLast = now - lastComplete;
+            let newCombo = timeSinceLast < 30000 ? combo + 1 : 1;
+            setCombo(newCombo);
+            setLastComplete(now);
+        
+            clearTimeout(comboTimerRef.current);
+            comboTimerRef.current = setTimeout(() => setCombo(0), 30000);
+        
+            // XP calc
+            const diff = DIFFICULTIES[quest.difficulty - 1];
+            const typeData = QUEST_TYPES[quest.type];
+            const baseXp = diff.xp * typeData.xpMult;
+            const comboBonus = Math.floor(baseXp * (newCombo - 1) * 0.25);
+            const earnedXp = baseXp + comboBonus;
+        
+            // Show toast
+            setXpToast({ xp: earnedXp, combo: newCombo });
+            setTimeout(() => setXpToast(null), 1500);
+        
+            // Apply XP
+            let newXp = xp + earnedXp;
+            let newLevel = level;
+            while (newXp >= LEVEL_XP(newLevel)) {
+              newXp -= LEVEL_XP(newLevel);
+              newLevel++;
+              setTimeout(() => setLevelUpShow(newLevel), 600);
+            }
+            setXp(newXp);
+            setLevel(newLevel);
+            setTotalCompleted((c) => c + 1);
+        
+            // Mark done
+            setQuests((qs) => qs.map((q) => (q.id === quest.id ? { ...q, done: true } : q)));
+        
+            if (focusMode && focusQuest?.id === quest.id) {
+              setFocusQuest(null);
+              setFocusMode(false);
+            }
+          }, [xp, level, combo, lastComplete, focusQuest, focusMode]);
+        
+          const addQuest = () => {
+            if (!newText.trim()) return;
+            const q = {
+              id: Date.now(),
+              text: newText.trim(),
+              type: newType,
+              difficulty: newDiff,
+              done: false,
+            };
+            setQuests((qs) => [...qs, q]);
+            setNewText("");
+            setShowAdd(false);
+          };
+        
+          const deleteQuest = (id) => {
+            setQuests((qs) => qs.filter((q) => q.id !== id));
+          };
+        
+          const pendingQuests = quests.filter((q) => !q.done);
+          const doneQuests = quests.filter((q) => q.done);
+          const todayProgress = quests.length > 0 ? (doneQuests.length / quests.length) * 100 : 0;
+          const xpProgress = (xp / LEVEL_XP(level)) * 100;
+          const avatar = getAvatar(level);
+        
+          const filteredPending = filter === "all" ? pendingQuests : pendingQuests.filter((q) => q.type === filter);
+        
+          const enterFocusMode = (quest) => {
+            setFocusQuest(quest || filteredPending[0]);
+            setFocusMode(true);
+          };
+        
+          const convertDump = () => {
+            const lines = brainDump.split("\n").filter((l) => l.trim());
+            const newQuests = lines.map((line, i) => ({
+              id: Date.now() + i,
+              text: line.trim(),
+              type: "side",
+              difficulty: 1,
+              done: false,
+            }));
+            setQuests((qs) => [...qs, ...newQuests]);
+            setBrainDump("");
+            setShowDump(false);
+          };
+        
+          // Focus mode view
+          if (focusMode && focusQuest) {
+            const diff = DIFFICULTIES[focusQuest.difficulty - 1];
+            const typeData = QUEST_TYPES[focusQuest.type];
+            return (
+              <div style={{
+                minHeight: "100vh",
+                background: "radial-gradient(ellipse at 50% 20%, #1a1a35, #0a0a0f)",
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                justifyContent: "center",
+                fontFamily: "'Noto Sans KR', sans-serif",
+                padding: 24,
+              }}>
+                <style>{globalStyles}</style>
+                <div style={{
+                  fontSize: 13,
+                  color: "#666",
+                  letterSpacing: 4,
+                  marginBottom: 32,
+                  fontFamily: "'Black Han Sans', sans-serif",
+                }}>
+                  🎯 지금 딱 하나만 모드
+                </div>
+        
+                <div style={{
+                  background: "linear-gradient(135deg, #12121f, #1a1a35)",
+                  borderRadius: 20,
+                  padding: "40px 48px",
+                  border: `2px solid ${typeData.color}40`,
+                  textAlign: "center",
+                  maxWidth: 400,
+                  width: "100%",
+                  boxShadow: `0 0 40px ${typeData.color}15`,
+                }}>
+                  <div style={{ fontSize: 36, marginBottom: 16 }}>{typeData.icon}</div>
+                  <div style={{
+                    fontSize: 10,
+                    color: typeData.color,
+                    letterSpacing: 3,
+                    marginBottom: 8,
+                    fontFamily: "'Black Han Sans', sans-serif",
+                  }}>
+                    {typeData.label}
+                  </div>
+                  <div style={{
+                    fontSize: 24,
+                    fontWeight: 700,
+                    color: "#fff",
+                    marginBottom: 16,
+                    fontFamily: "'Black Han Sans', sans-serif",
+                    lineHeight: 1.4,
+                  }}>
+                    {focusQuest.text}
+                  </div>
+                  <div style={{ marginBottom: 24, color: diff.color }}>
+                    {"⭐".repeat(focusQuest.difficulty)}
+                    <span style={{ color: "#666", fontSize: 13, marginLeft: 8 }}>~{diff.time}분</span>
+                  </div>
+        
+                  <button
+                    onClick={(e) => completeQuest(focusQuest, e)}
+                    style={{
+                      width: "100%",
+                      padding: "16px",
+                      background: `linear-gradient(135deg, ${typeData.color}, ${typeData.color}cc)`,
+                      border: "none",
+                      borderRadius: 14,
+                      color: "#0a0a0f",
+                      fontSize: 18,
+                      fontWeight: 800,
+                      cursor: "pointer",
+                      fontFamily: "'Black Han Sans', sans-serif",
+                      letterSpacing: 2,
+                      marginBottom: 12,
+                    }}
+                  >
+                    ✅ 퀘스트 완료!
+                  </button>
+        
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      onClick={() => {
+                        const idx = filteredPending.findIndex((q) => q.id === focusQuest.id);
+                        const next = filteredPending[(idx + 1) % filteredPending.length];
+                        setFocusQuest(next);
+                      }}
+                      style={{
+                        flex: 1, padding: "10px", background: "#1a1a2e",
+                        border: "2px solid #333", borderRadius: 10, color: "#888",
+                        fontSize: 13, cursor: "pointer",
+                      }}
+                    >
+                      다음 퀘스트 →
+                    </button>
+                    <button
+                      onClick={() => setFocusMode(false)}
+                      style={{
+                        flex: 1, padding: "10px", background: "transparent",
+                        border: "2px solid #333", borderRadius: 10, color: "#555",
+                        fontSize: 13, cursor: "pointer",
+                      }}
+                    >
+                      목록으로 돌아가기
+                    </button>
+                  </div>
+                </div>
+        
+                {particles && <Particles x={particles.x} y={particles.y} active />}
+                {xpToast && <XPToast xp={xpToast.xp} combo={xpToast.combo} visible />}
+                {levelUpShow && <LevelUpOverlay level={levelUpShow} onClose={() => setLevelUpShow(null)} />}
+              </div>
+            );
+          }
+        
+          return (
+            <div style={{
+              minHeight: "100vh",
+              background: "#0a0a0f",
+              fontFamily: "'Noto Sans KR', sans-serif",
+              color: "#e0e0e0",
+              paddingBottom: 100,
+            }}>
+              <style>{globalStyles}</style>
+        
+              {/* Header - Character Status */}
+              <div style={{
+                background: "linear-gradient(180deg, #12121f 0%, #0a0a0f 100%)",
+                borderBottom: "1px solid #1a1a2e",
+                padding: "20px 20px 16px",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 16 }}>
+                  <div style={{
+                    width: 56, height: 56,
+                    borderRadius: 16,
+                    background: "linear-gradient(135deg, #1a1a35, #252540)",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    fontSize: 32,
+                    border: "2px solid #333",
+                    boxShadow: "0 0 20px rgba(167,139,250,0.15)",
+                  }}>
+                    {avatar.emoji}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: "flex", alignItems: "baseline", gap: 8, marginBottom: 2 }}>
+                      <span style={{
+                        fontSize: 22,
+                        fontWeight: 800,
+                        color: "#fff",
+                        fontFamily: "'Black Han Sans', sans-serif",
+                      }}>
+                        LV.{level}
+                      </span>
+                      <span style={{
+                        fontSize: 12,
+                        color: "#a78bfa",
+                        fontFamily: "'Black Han Sans', sans-serif",
+                        letterSpacing: 1,
+                      }}>
+                        {TITLES[Math.min(level - 1, TITLES.length - 1)]}
+                      </span>
+                    </div>
+                    {/* XP Bar */}
+                    <div style={{ position: "relative", height: 14, background: "#1a1a2e", borderRadius: 7, overflow: "hidden" }}>
+                      <div style={{
+                        height: "100%",
+                        width: `${xpProgress}%`,
+                        background: "linear-gradient(90deg, #a78bfa, #7c3aed)",
+                        borderRadius: 7,
+                        transition: "width 0.5s ease",
+                        boxShadow: "0 0 8px rgba(167,139,250,0.4)",
+                      }} />
+                      <span style={{
+                        position: "absolute",
+                        right: 8,
+                        top: "50%",
+                        transform: "translateY(-50%)",
+                        fontSize: 9,
+                        color: "#888",
+                        fontWeight: 600,
+                      }}>
+                        {xp}/{LEVEL_XP(level)} XP
+                      </span>
+                    </div>
+                  </div>
+                </div>
+        
+                {/* Stats row */}
+                <div style={{ display: "flex", gap: 8 }}>
+                  <div style={{
+                    flex: 1,
+                    background: "#12121f",
+                    borderRadius: 10,
+                    padding: "8px 12px",
+                    textAlign: "center",
+                    border: "1px solid #1a1a2e",
+                  }}>
+                    <div style={{ fontSize: 10, color: "#666", marginBottom: 2 }}>오늘 진행률</div>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: todayProgress >= 100 ? "#4ade80" : "#fff", fontFamily: "'Black Han Sans', sans-serif" }}>
+                      {Math.round(todayProgress)}%
+                    </div>
+                  </div>
+                  <div style={{
+                    flex: 1,
+                    background: "#12121f",
+                    borderRadius: 10,
+                    padding: "8px 12px",
+                    textAlign: "center",
+                    border: "1px solid #1a1a2e",
+                  }}>
+                    <div style={{ fontSize: 10, color: "#666", marginBottom: 2 }}>콤보</div>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: combo > 0 ? "#ff6b35" : "#444", fontFamily: "'Black Han Sans', sans-serif" }}>
+                      {combo > 0 ? `🔥 ${combo}x` : "—"}
+                    </div>
+                  </div>
+                  <div style={{
+                    flex: 1,
+                    background: "#12121f",
+                    borderRadius: 10,
+                    padding: "8px 12px",
+                    textAlign: "center",
+                    border: "1px solid #1a1a2e",
+                  }}>
+                    <div style={{ fontSize: 10, color: "#666", marginBottom: 2 }}>총 클리어</div>
+                    <div style={{ fontSize: 16, fontWeight: 800, color: "#4ecdc4", fontFamily: "'Black Han Sans', sans-serif" }}>
+                      {totalCompleted}
+                    </div>
+                  </div>
+                </div>
+        
+                {/* Daily progress bar */}
+                <div style={{ marginTop: 12, height: 6, background: "#1a1a2e", borderRadius: 3, overflow: "hidden" }}>
+                  <div style={{
+                    height: "100%",
+                    width: `${todayProgress}%`,
+                    background: todayProgress >= 100
+                      ? "linear-gradient(90deg, #4ade80, #22c55e)"
+                      : "linear-gradient(90deg, #4ecdc4, #2db5a8)",
+                    borderRadius: 3,
+                    transition: "width 0.5s ease",
+                  }} />
+                </div>
+              </div>
+        
+              {/* Action buttons */}
+              <div style={{ display: "flex", gap: 8, padding: "12px 20px", overflowX: "auto" }}>
+                <button
+                  onClick={() => enterFocusMode()}
+                  disabled={pendingQuests.length === 0}
+                  style={{
+                    padding: "8px 16px",
+                    background: "linear-gradient(135deg, #ff6b35, #ef4444)",
+                    border: "none",
+                    borderRadius: 10,
+                    color: "#fff",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                    opacity: pendingQuests.length === 0 ? 0.4 : 1,
+                  }}
+                >
+                  🎯 딱 하나만
+                </button>
+                <button
+                  onClick={() => setShowBoss(true)}
+                  style={{
+                    padding: "8px 16px",
+                    background: "linear-gradient(135deg, #7c3aed, #a78bfa)",
+                    border: "none",
+                    borderRadius: 10,
+                    color: "#fff",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  🐲 보스전 25분
+                </button>
+                <button
+                  onClick={() => setShowRoulette(true)}
+                  disabled={pendingQuests.length === 0}
+                  style={{
+                    padding: "8px 16px",
+                    background: "linear-gradient(135deg, #4ecdc4, #2db5a8)",
+                    border: "none",
+                    borderRadius: 10,
+                    color: "#0a0a0f",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                    opacity: pendingQuests.length === 0 ? 0.4 : 1,
+                  }}
+                >
+                  🎲 랜덤 뽑기
+                </button>
+                <button
+                  onClick={() => setShowDump(true)}
+                  style={{
+                    padding: "8px 16px",
+                    background: "#1a1a2e",
+                    border: "2px solid #333",
+                    borderRadius: 10,
+                    color: "#888",
+                    fontSize: 12,
+                    fontWeight: 700,
+                    cursor: "pointer",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  🧠 브레인덤프
+                </button>
+              </div>
+        
+              {/* Filter tabs */}
+              <div style={{ display: "flex", gap: 6, padding: "4px 20px 12px", overflowX: "auto" }}>
+                {[
+                  { key: "all", label: "전체", icon: "📋" },
+                  { key: "main", label: "메인", icon: "⚔️" },
+                  { key: "side", label: "사이드", icon: "🗡️" },
+                  { key: "daily", label: "데일리", icon: "🔄" },
+                ].map((f) => (
+                  <button
+                    key={f.key}
+                    onClick={() => setFilter(f.key)}
+                    style={{
+                      padding: "6px 14px",
+                      background: filter === f.key ? "#252540" : "transparent",
+                      border: filter === f.key ? "1px solid #333" : "1px solid transparent",
+                      borderRadius: 8,
+                      color: filter === f.key ? "#fff" : "#555",
+                      fontSize: 12,
+                      cursor: "pointer",
+                      whiteSpace: "nowrap",
+                      transition: "all 0.2s",
+                    }}
+                  >
+                    {f.icon} {f.label}
+                  </button>
+                ))}
+              </div>
+        
+              {/* Quest List */}
+              <div style={{ padding: "0 20px" }}>
+                {filteredPending.length === 0 && (
+                  <div style={{
+                    textAlign: "center",
+                    padding: "40px 20px",
+                    color: "#444",
+                  }}>
+                    <div style={{ fontSize: 40, marginBottom: 12 }}>
+                      {pendingQuests.length === 0 ? "🏆" : "📭"}
+                    </div>
+                    <div style={{ fontSize: 14 }}>
+                      {pendingQuests.length === 0 ? "모든 퀘스트 클리어! 대단해요!" : "이 카테고리에 퀘스트가 없어요"}
+                    </div>
+                  </div>
+                )}
+        
+                {filteredPending.map((quest, i) => {
+                  const diff = DIFFICULTIES[quest.difficulty - 1];
+                  const typeData = QUEST_TYPES[quest.type];
+                  return (
+                    <div
+                      key={quest.id}
+                      style={{
+                        background: "linear-gradient(135deg, #12121f, #161628)",
+                        borderRadius: 14,
+                        padding: "14px 16px",
+                        marginBottom: 8,
+                        border: `1px solid ${typeData.color}20`,
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 12,
+                        animation: `slide-in 0.3s ease ${i * 0.05}s both`,
+                        position: "relative",
+                        overflow: "hidden",
+                      }}
+                    >
+                      {/* Left accent */}
+                      <div style={{
+                        position: "absolute",
+                        left: 0,
+                        top: 0,
+                        bottom: 0,
+                        width: 3,
+                        background: typeData.color,
+                        borderRadius: "14px 0 0 14px",
+                      }} />
+        
+                      {/* Complete button */}
+                      <button
+                        onClick={(e) => completeQuest(quest, e)}
+                        style={{
+                          width: 36,
+                          height: 36,
+                          borderRadius: 10,
+                          border: `2px solid ${typeData.color}60`,
+                          background: "transparent",
+                          cursor: "pointer",
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          fontSize: 14,
+                          color: typeData.color,
+                          transition: "all 0.2s",
+                          flexShrink: 0,
+                        }}
+                        onMouseEnter={(e) => {
+                          e.currentTarget.style.background = `${typeData.color}20`;
+                          e.currentTarget.style.borderColor = typeData.color;
+                        }}
+                        onMouseLeave={(e) => {
+                          e.currentTarget.style.background = "transparent";
+                          e.currentTarget.style.borderColor = `${typeData.color}60`;
+                        }}
+                      >
+                        ✓
+                      </button>
+        
+                      {/* Content */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{
+                          fontSize: 14,
+                          fontWeight: 600,
+                          color: "#e0e0e0",
+                          marginBottom: 4,
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                          whiteSpace: "nowrap",
+                        }}>
+                          {quest.text}
+                        </div>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontSize: 10, color: typeData.color }}>
+                            {typeData.icon} {typeData.label}
+                          </span>
+                          <span style={{ fontSize: 10, color: diff.color }}>
+                            {"⭐".repeat(quest.difficulty)}
+                          </span>
+                          <span style={{ fontSize: 10, color: "#555" }}>
+                            +{diff.xp * typeData.xpMult}xp
+                          </span>
+                        </div>
+                      </div>
+        
+                      {/* Focus button */}
+                      <button
+                        onClick={() => enterFocusMode(quest)}
+                        style={{
+                          padding: "6px 10px",
+                          background: "#1a1a2e",
+                          border: "1px solid #252540",
+                          borderRadius: 8,
+                          color: "#666",
+                          fontSize: 11,
+                          cursor: "pointer",
+                          flexShrink: 0,
+                        }}
+                      >
+                        🎯
+                      </button>
+        
+                      {/* Delete */}
+                      <button
+                        onClick={() => deleteQuest(quest.id)}
+                        style={{
+                          background: "none",
+                          border: "none",
+                          color: "#333",
+                          cursor: "pointer",
+                          fontSize: 14,
+                          padding: 4,
+                          flexShrink: 0,
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  );
+                })}
+        
+                {/* Completed section */}
+                {doneQuests.length > 0 && (
+                  <div style={{ marginTop: 24 }}>
+                    <div style={{
+                      fontSize: 11,
+                      color: "#444",
+                      letterSpacing: 2,
+                      marginBottom: 8,
+                      fontFamily: "'Black Han Sans', sans-serif",
+                    }}>
+                      ✅ 완료 ({doneQuests.length})
+                    </div>
+                    {doneQuests.map((quest) => {
+                      const typeData = QUEST_TYPES[quest.type];
+                      return (
+                        <div
+                          key={quest.id}
+                          style={{
+                            background: "#0d0d15",
+                            borderRadius: 12,
+                            padding: "10px 16px",
+                            marginBottom: 4,
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 12,
+                            opacity: 0.4,
+                          }}
+                        >
+                          <span style={{ fontSize: 16 }}>✅</span>
+                          <span style={{
+                            fontSize: 13,
+                            textDecoration: "line-through",
+                            color: "#555",
+                            flex: 1,
+                          }}>
+                            {quest.text}
+                          </span>
+                          <button
+                            onClick={() => deleteQuest(quest.id)}
+                            style={{
+                              background: "none", border: "none",
+                              color: "#333", cursor: "pointer", fontSize: 14,
+                            }}
+                          >
+                            ×
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+        
+              {/* Add Quest FAB */}
+              <button
+                onClick={() => setShowAdd(true)}
+                style={{
+                  position: "fixed",
+                  bottom: 24,
+                  right: 24,
+                  width: 56,
+                  height: 56,
+                  borderRadius: 16,
+                  background: "linear-gradient(135deg, #ff6b35, #ef4444)",
+                  border: "none",
+                  color: "#fff",
+                  fontSize: 28,
+                  cursor: "pointer",
+                  boxShadow: "0 4px 20px rgba(255,107,53,0.4)",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "center",
+                  zIndex: 100,
+                }}
+              >
+                +
+              </button>
+        
+              {/* Add Quest Modal */}
+              {showAdd && (
+                <div
+                  onClick={(e) => e.target === e.currentTarget && setShowAdd(false)}
+                  style={{
+                    position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)",
+                    zIndex: 9999, display: "flex", alignItems: "flex-end", justifyContent: "center",
+                  }}
+                >
+                  <div style={{
+                    background: "#12121f",
+                    borderRadius: "20px 20px 0 0",
+                    padding: "24px 20px 32px",
+                    width: "100%",
+                    maxWidth: 480,
+                    border: "1px solid #252540",
+                    borderBottom: "none",
+                    animation: "slide-up 0.3s ease",
+                  }}>
+                    <div style={{
+                      fontSize: 16, fontWeight: 700, color: "#fff", marginBottom: 16,
+                      fontFamily: "'Black Han Sans', sans-serif",
+                    }}>
+                      ✨ 새 퀘스트 추가
+                    </div>
+        
+                    <input
+                      value={newText}
+                      onChange={(e) => setNewText(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && addQuest()}
+                      placeholder="퀘스트 내용을 입력하세요..."
+                      autoFocus
+                      style={{
+                        width: "100%",
+                        padding: "12px 16px",
+                        background: "#1a1a2e",
+                        border: "2px solid #252540",
+                        borderRadius: 12,
+                        color: "#fff",
+                        fontSize: 15,
+                        outline: "none",
+                        marginBottom: 16,
+                        boxSizing: "border-box",
+                      }}
+                    />
+        
+                    <div style={{ marginBottom: 12 }}>
+                      <div style={{ fontSize: 11, color: "#666", marginBottom: 6 }}>퀘스트 타입</div>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        {Object.entries(QUEST_TYPES).map(([key, val]) => (
+                          <button
+                            key={key}
+                            onClick={() => setNewType(key)}
+                            style={{
+                              flex: 1,
+                              padding: "8px",
+                              background: newType === key ? `${val.color}20` : "#1a1a2e",
+                              border: newType === key ? `2px solid ${val.color}` : "2px solid #252540",
+                              borderRadius: 10,
+                              color: newType === key ? val.color : "#666",
+                              fontSize: 11,
+                              cursor: "pointer",
+                              textAlign: "center",
+                            }}
+                          >
+                            {val.icon}<br />{val.label}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+        
+                    <div style={{ marginBottom: 20 }}>
+                      <div style={{ fontSize: 11, color: "#666", marginBottom: 6 }}>난이도</div>
+                      <div style={{ display: "flex", gap: 6 }}>
+                        {DIFFICULTIES.map((d) => (
+                          <button
+                            key={d.stars}
+                            onClick={() => setNewDiff(d.stars)}
+                            style={{
+                              flex: 1,
+                              padding: "8px 4px",
+                              background: newDiff === d.stars ? `${d.color}20` : "#1a1a2e",
+                              border: newDiff === d.stars ? `2px solid ${d.color}` : "2px solid #252540",
+                              borderRadius: 10,
+                              color: newDiff === d.stars ? d.color : "#555",
+                              fontSize: 10,
+                              cursor: "pointer",
+                              textAlign: "center",
+                            }}
+                          >
+                            {"⭐".repeat(d.stars)}
+                            <div style={{ fontSize: 9, marginTop: 2 }}>{d.label}</div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+        
+                    <button
+                      onClick={addQuest}
+                      disabled={!newText.trim()}
+                      style={{
+                        width: "100%",
+                        padding: "14px",
+                        background: newText.trim() ? "linear-gradient(135deg, #ff6b35, #ef4444)" : "#333",
+                        border: "none",
+                        borderRadius: 12,
+                        color: "#fff",
+                        fontSize: 16,
+                        fontWeight: 700,
+                        cursor: newText.trim() ? "pointer" : "default",
+                        fontFamily: "'Black Han Sans', sans-serif",
+                      }}
+                    >
+                      퀘스트 등록!
+                    </button>
+                  </div>
+                </div>
+              )}
+        
+              {/* Brain Dump Modal */}
+              {showDump && (
+                <div
+                  onClick={(e) => e.target === e.currentTarget && setShowDump(false)}
+                  style={{
+                    position: "fixed", inset: 0, background: "rgba(0,0,0,0.8)",
+                    zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center",
+                    padding: 20,
+                  }}
+                >
+                  <div style={{
+                    background: "#12121f",
+                    borderRadius: 20,
+                    padding: 24,
+                    width: "100%",
+                    maxWidth: 440,
+                    border: "1px solid #252540",
+                  }}>
+                    <div style={{
+                      fontSize: 16, fontWeight: 700, color: "#fff", marginBottom: 8,
+                      fontFamily: "'Black Han Sans', sans-serif",
+                    }}>
+                      🧠 브레인 덤프
+                    </div>
+                    <div style={{ fontSize: 12, color: "#666", marginBottom: 16 }}>
+                      머릿속 생각을 줄바꿈으로 쏟아내세요. 나중에 퀘스트로 변환됩니다.
+                    </div>
+                    <textarea
+                      value={brainDump}
+                      onChange={(e) => setBrainDump(e.target.value)}
+                      placeholder={"오픈클로 4강 준비\n장보기\n은행 가기\n운동하기\n..."}
+                      rows={8}
+                      autoFocus
+                      style={{
+                        width: "100%",
+                        padding: "12px 16px",
+                        background: "#1a1a2e",
+                        border: "2px solid #252540",
+                        borderRadius: 12,
+                        color: "#fff",
+                        fontSize: 14,
+                        outline: "none",
+                        resize: "vertical",
+                        marginBottom: 16,
+                        boxSizing: "border-box",
+                        fontFamily: "'Noto Sans KR', sans-serif",
+                        lineHeight: 1.8,
+                      }}
+                    />
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button
+                        onClick={convertDump}
+                        disabled={!brainDump.trim()}
+                        style={{
+                          flex: 1, padding: "12px",
+                          background: brainDump.trim() ? "linear-gradient(135deg, #4ecdc4, #2db5a8)" : "#333",
+                          border: "none", borderRadius: 12, color: "#0a0a0f",
+                          fontSize: 14, fontWeight: 700, cursor: brainDump.trim() ? "pointer" : "default",
+                          fontFamily: "'Black Han Sans', sans-serif",
+                        }}
+                      >
+                        퀘스트로 변환 ({brainDump.split("\n").filter((l) => l.trim()).length}개)
+                      </button>
+                      <button
+                        onClick={() => setShowDump(false)}
+                        style={{
+                          padding: "12px 20px",
+                          background: "transparent",
+                          border: "2px solid #333",
+                          borderRadius: 12,
+                          color: "#666",
+                          cursor: "pointer",
+                        }}
+                      >
+                        닫기
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+        
+              {/* Overlays */}
+              {particles && <Particles x={particles.x} y={particles.y} active />}
+              {xpToast && <XPToast xp={xpToast.xp} combo={xpToast.combo} visible />}
+              {levelUpShow && <LevelUpOverlay level={levelUpShow} onClose={() => setLevelUpShow(null)} />}
+              {showBoss && (
+                <BossFight
+                  onComplete={() => {
+                    setShowBoss(false);
+                    const earned = 150;
+                    let newXp = xp + earned;
+                    let newLevel = level;
+                    while (newXp >= LEVEL_XP(newLevel)) {
+                      newXp -= LEVEL_XP(newLevel);
+                      newLevel++;
+                      setTimeout(() => setLevelUpShow(newLevel), 300);
+                    }
+                    setXp(newXp);
+                    setLevel(newLevel);
+                    setXpToast({ xp: earned, combo: 0 });
+                    setTimeout(() => setXpToast(null), 1500);
+                  }}
+                  onCancel={() => setShowBoss(false)}
+                />
+              )}
+              {showRoulette && (
+                <QuestRoulette
+                  quests={quests}
+                  onSelect={(q) => enterFocusMode(q)}
+                  onClose={() => setShowRoulette(false)}
+                />
+              )}
+            </div>
+          );
+        }
+        
+        const globalStyles = `
+          @import url('https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Noto+Sans+KR:wght@400;600;700;800&display=swap');
+        
+          * { box-sizing: border-box; margin: 0; padding: 0; }
+          body { background: #0a0a0f; }
+        
+          @keyframes particle-fly {
+            0% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+            100% { opacity: 0; transform: translate(calc(-50% + var(--tx)), calc(-50% + var(--ty))) scale(0); }
+          }
+        
+          @keyframes xp-toast {
+            0% { opacity: 0; transform: translate(-50%, -50%) scale(0.5); }
+            20% { opacity: 1; transform: translate(-50%, -50%) scale(1.1); }
+            30% { transform: translate(-50%, -50%) scale(1); }
+            70% { opacity: 1; }
+            100% { opacity: 0; transform: translate(-50%, -80%) scale(0.8); }
+          }
+        
+          @keyframes fade-in {
+            from { opacity: 0; }
+            to { opacity: 1; }
+          }
+        
+          @keyframes level-up-bounce {
+            0% { transform: scale(0.3); opacity: 0; }
+            50% { transform: scale(1.1); }
+            70% { transform: scale(0.95); }
+            100% { transform: scale(1); opacity: 1; }
+          }
+        
+          @keyframes slide-in {
+            from { opacity: 0; transform: translateY(12px); }
+            to { opacity: 1; transform: translateY(0); }
+          }
+        
+          @keyframes slide-up {
+            from { transform: translateY(100%); }
+            to { transform: translateY(0); }
+          }
+        
+          @keyframes boss-idle {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-8px); }
+          }
+        
+          @keyframes boss-shake {
+            0%, 100% { transform: translateX(0); }
+            20% { transform: translateX(-12px) rotate(-5deg); }
+            40% { transform: translateX(12px) rotate(5deg); }
+            60% { transform: translateX(-8px) rotate(-3deg); }
+            80% { transform: translateX(8px) rotate(3deg); }
+          }
+        
+          @keyframes boss-die {
+            0% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.3) rotate(15deg); }
+            100% { transform: scale(0) rotate(45deg); opacity: 0; }
+          }
+        
+          ::-webkit-scrollbar { width: 4px; }
+          ::-webkit-scrollbar-track { background: transparent; }
+          ::-webkit-scrollbar-thumb { background: #333; border-radius: 2px; }
+        `;
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<QuestTodo />);
+    </script>
+</body>
+</html>
