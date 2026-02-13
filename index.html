@@ -81,12 +81,20 @@
         }
       };
 
-      // 인앱 브라우저이면 안내 화면 표시
+      // 인앱 브라우저이면 자동으로 외부 브라우저로 열기 시도
       if (isInAppBrowser()) {
         const appUrl = window.location.href;
+
+        // Android: intent로 Chrome 자동 열기 시도
+        if (/Android/i.test(navigator.userAgent)) {
+          const intentUrl = `intent://${appUrl.replace(/^https?:\/\//, '')}#Intent;scheme=https;package=com.android.chrome;end`;
+          window.location.href = intentUrl;
+        }
+
+        // 자동 열기 실패시 안내 화면
         const copyUrl = () => {
           navigator.clipboard.writeText(appUrl).then(() => {
-            alert("URL이 복사되었습니다! Chrome 또는 Safari에서 붙여넣기 해주세요.");
+            alert("URL이 복사되었습니다!\nChrome 또는 Safari에서 붙여넣기 해주세요.");
           }).catch(() => {
             prompt("아래 주소를 복사해서 Chrome에서 열어주세요:", appUrl);
           });
@@ -102,52 +110,52 @@
             <style>{globalStyles}</style>
             <div style={{ fontSize: 64, marginBottom: 16 }}>🌐</div>
             <div style={{
-              fontSize: 22, fontWeight: 900, color: "#fff", marginBottom: 12,
+              fontSize: 20, fontWeight: 900, color: "#fff", marginBottom: 12,
               fontFamily: "'Black Han Sans', sans-serif", textAlign: "center",
-            }}>외부 브라우저에서 열어주세요</div>
+            }}>Chrome / Safari에서 열어주세요!</div>
             <div style={{
-              fontSize: 13, color: "#888", marginBottom: 32, textAlign: "center",
+              fontSize: 13, color: "#888", marginBottom: 24, textAlign: "center",
               lineHeight: 1.8, maxWidth: 300,
             }}>
-              인앱 브라우저에서는 Google 로그인이<br />
-              지원되지 않습니다. 😢<br />
-              <strong style={{ color: "#4ecdc4" }}>Chrome</strong> 또는 <strong style={{ color: "#4ecdc4" }}>Safari</strong>에서 열어주세요!
+              Google 보안 정책으로 인앱 브라우저에서는<br />
+              로그인이 지원되지 않습니다 😢
             </div>
 
             <button
               onClick={copyUrl}
               style={{
-                padding: "16px 40px",
+                padding: "16px 48px",
                 background: "linear-gradient(135deg, #4ecdc4, #2db5a8)",
                 border: "none", borderRadius: 16, color: "#0a0a0f",
                 fontSize: 16, fontWeight: 800, cursor: "pointer",
-                fontFamily: "'Black Han Sans', sans-serif", letterSpacing: 1,
-                marginBottom: 12,
+                fontFamily: "'Black Han Sans', sans-serif",
+                marginBottom: 16, width: "100%", maxWidth: 300,
               }}
             >
               📋 URL 복사하기
             </button>
 
-            <div style={{
-              fontSize: 11, color: "#555", textAlign: "center", lineHeight: 1.8,
-            }}>
-              ① 위 버튼으로 주소 복사<br />
-              ② Chrome/Safari 앱 열기<br />
-              ③ 주소창에 붙여넣기
-            </div>
-
             <a
               href={`intent://${appUrl.replace(/^https?:\/\//, '')}#Intent;scheme=https;package=com.android.chrome;end`}
               style={{
-                marginTop: 24, padding: "12px 32px",
+                padding: "14px 48px",
                 background: "linear-gradient(135deg, #ff6b35, #ef4444)",
-                border: "none", borderRadius: 12, color: "#fff",
-                fontSize: 14, fontWeight: 700, textDecoration: "none",
+                borderRadius: 16, color: "#fff",
+                fontSize: 15, fontWeight: 700, textDecoration: "none",
                 fontFamily: "'Black Han Sans', sans-serif",
+                display: "block", textAlign: "center",
+                width: "100%", maxWidth: 300, boxSizing: "border-box",
               }}
             >
-              🚀 Chrome으로 바로 열기 (Android)
+              🚀 Chrome에서 열기
             </a>
+
+            <div style={{
+              marginTop: 24, fontSize: 11, color: "#444", textAlign: "center", lineHeight: 2,
+            }}>
+              또는 우측 상단 <strong style={{ color: "#888" }}>⋮ 메뉴</strong> →<br />
+              <strong style={{ color: "#888" }}>"다른 브라우저에서 열기"</strong> 선택
+            </div>
           </div>
         );
       }
