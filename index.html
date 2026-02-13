@@ -695,6 +695,7 @@
       const [dataLoaded, setDataLoaded] = useState(false);
 
       const comboTimerRef = useRef(null);
+      const initializedRef = useRef(false);
 
       // ===== Firestore 실시간 동기화 =====
       useEffect(() => {
@@ -713,19 +714,27 @@
 
         // 퀘스트 로드
         const unsubQuests = getQuestsRef(uid).orderBy("createdAt", "asc").onSnapshot(async (snap) => {
-          if (snap.empty && !dataLoaded) {
-            // 첫 로그인: 샘플 퀘스트 초기화
-            const batch = db.batch();
-            SAMPLE_QUESTS.forEach((q) => {
-              const ref = getQuestsRef(uid).doc(String(q.id));
-              batch.set(ref, { ...q, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
-            });
-            batch.set(getProfileRef(uid), { xp: 0, level: 1, totalCompleted: 0 }, { merge: true });
-            await batch.commit();
+          if (snap.empty && !initializedRef.current) {
+            // 프로필에서 initialized 플래그 확인
+            const profileDoc = await getProfileRef(uid).get();
+            if (!profileDoc.exists || !profileDoc.data().initialized) {
+              // 진짜 첫 로그인: 샘플 퀘스트 초기화
+              const batch = db.batch();
+              SAMPLE_QUESTS.forEach((q) => {
+                const ref = getQuestsRef(uid).doc(String(q.id));
+                batch.set(ref, { ...q, createdAt: firebase.firestore.FieldValue.serverTimestamp() });
+              });
+              batch.set(getProfileRef(uid), { xp: 0, level: 1, totalCompleted: 0, initialized: true }, { merge: true });
+              await batch.commit();
+            } else {
+              // 이미 초기화된 사용자 - 그냥 빈 목록
+              setQuests([]);
+            }
           } else {
             const loaded = snap.docs.map((d) => ({ ...d.data(), id: d.id }));
             setQuests(loaded);
           }
+          initializedRef.current = true;
           setDataLoaded(true);
         });
 
