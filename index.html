@@ -220,6 +220,21 @@
       const [authLoading, setAuthLoading] = useState(true);
 
       useEffect(() => {
+        // 모바일 redirect 로그인 결과 처리
+        auth.getRedirectResult().then((result) => {
+          if (result.user) {
+            setUser(result.user);
+            setAuthLoading(false);
+            getProfileRef(result.user.uid).set({
+              displayName: result.user.displayName || '모험가',
+              photoURL: result.user.photoURL || null,
+              lastLogin: firebase.firestore.FieldValue.serverTimestamp(),
+            }, { merge: true });
+          }
+        }).catch((err) => {
+          console.error("Redirect result error:", err);
+        });
+
         const unsub = auth.onAuthStateChanged((u) => {
           setUser(u);
           setAuthLoading(false);
