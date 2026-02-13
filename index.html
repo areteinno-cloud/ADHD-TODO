@@ -42,9 +42,13 @@
     const auth = firebase.auth();
     const db = firebase.firestore();
 
-    // Google 로그인
+    // Google 로그인 (모바일은 redirect, PC는 popup)
+    const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     const signInWithGoogle = () => {
       const provider = new firebase.auth.GoogleAuthProvider();
+      if (isMobile) {
+        return auth.signInWithRedirect(provider);
+      }
       return auth.signInWithPopup(provider);
     };
     const signOut = () => auth.signOut();
