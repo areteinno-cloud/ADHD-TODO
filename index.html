@@ -171,15 +171,27 @@
       useEffect(() => {
         db.collection("users")
           .orderBy("level", "desc")
-          .orderBy("xp", "desc")
           .limit(50)
           .get()
           .then((snap) => {
             const list = snap.docs
               .map((d) => ({ uid: d.id, ...d.data() }))
-              .filter((p) => p.level && p.displayName);
+              .filter((p) => p.displayName)
+              .sort((a, b) => (b.level || 0) - (a.level || 0) || (b.xp || 0) - (a.xp || 0));
             setPlayers(list);
             setLoading(false);
+          })
+          .catch((err) => {
+            console.error("Leaderboard error:", err);
+            // 인덱스 없이 fallback
+            db.collection("users").get().then((snap) => {
+              const list = snap.docs
+                .map((d) => ({ uid: d.id, ...d.data() }))
+                .filter((p) => p.displayName)
+                .sort((a, b) => (b.level || 0) - (a.level || 0) || (b.xp || 0) - (a.xp || 0));
+              setPlayers(list);
+              setLoading(false);
+            });
           });
       }, []);
 
