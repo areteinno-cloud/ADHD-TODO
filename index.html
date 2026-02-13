@@ -42,6 +42,13 @@
     const auth = firebase.auth();
     const db = firebase.firestore();
 
+    // 인앱 브라우저 감지
+    const isInAppBrowser = () => {
+      const ua = navigator.userAgent || navigator.vendor;
+      return /KAKAOTALK|FBAN|FBAV|Instagram|Line|NAVER|Whale\/\d/i.test(ua)
+        || (/iPhone|iPad|iPod|Android/i.test(ua) && /wv\)|WebView/i.test(ua));
+    };
+
     // Google 로그인 (모바일은 redirect, PC는 popup)
     const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
     const signInWithGoogle = () => {
@@ -73,6 +80,77 @@
           setLoading(false);
         }
       };
+
+      // 인앱 브라우저이면 안내 화면 표시
+      if (isInAppBrowser()) {
+        const appUrl = window.location.href;
+        const copyUrl = () => {
+          navigator.clipboard.writeText(appUrl).then(() => {
+            alert("URL이 복사되었습니다! Chrome 또는 Safari에서 붙여넣기 해주세요.");
+          }).catch(() => {
+            prompt("아래 주소를 복사해서 Chrome에서 열어주세요:", appUrl);
+          });
+        };
+        return (
+          <div style={{
+            minHeight: "100vh",
+            background: "radial-gradient(ellipse at 50% 30%, #1a1a35, #0a0a0f)",
+            display: "flex", flexDirection: "column",
+            alignItems: "center", justifyContent: "center",
+            fontFamily: "'Noto Sans KR', sans-serif", padding: 24,
+          }}>
+            <style>{globalStyles}</style>
+            <div style={{ fontSize: 64, marginBottom: 16 }}>🌐</div>
+            <div style={{
+              fontSize: 22, fontWeight: 900, color: "#fff", marginBottom: 12,
+              fontFamily: "'Black Han Sans', sans-serif", textAlign: "center",
+            }}>외부 브라우저에서 열어주세요</div>
+            <div style={{
+              fontSize: 13, color: "#888", marginBottom: 32, textAlign: "center",
+              lineHeight: 1.8, maxWidth: 300,
+            }}>
+              인앱 브라우저에서는 Google 로그인이<br />
+              지원되지 않습니다. 😢<br />
+              <strong style={{ color: "#4ecdc4" }}>Chrome</strong> 또는 <strong style={{ color: "#4ecdc4" }}>Safari</strong>에서 열어주세요!
+            </div>
+
+            <button
+              onClick={copyUrl}
+              style={{
+                padding: "16px 40px",
+                background: "linear-gradient(135deg, #4ecdc4, #2db5a8)",
+                border: "none", borderRadius: 16, color: "#0a0a0f",
+                fontSize: 16, fontWeight: 800, cursor: "pointer",
+                fontFamily: "'Black Han Sans', sans-serif", letterSpacing: 1,
+                marginBottom: 12,
+              }}
+            >
+              📋 URL 복사하기
+            </button>
+
+            <div style={{
+              fontSize: 11, color: "#555", textAlign: "center", lineHeight: 1.8,
+            }}>
+              ① 위 버튼으로 주소 복사<br />
+              ② Chrome/Safari 앱 열기<br />
+              ③ 주소창에 붙여넣기
+            </div>
+
+            <a
+              href={`intent://${appUrl.replace(/^https?:\/\//, '')}#Intent;scheme=https;package=com.android.chrome;end`}
+              style={{
+                marginTop: 24, padding: "12px 32px",
+                background: "linear-gradient(135deg, #ff6b35, #ef4444)",
+                border: "none", borderRadius: 12, color: "#fff",
+                fontSize: 14, fontWeight: 700, textDecoration: "none",
+                fontFamily: "'Black Han Sans', sans-serif",
+              }}
+            >
+              🚀 Chrome으로 바로 열기 (Android)
+            </a>
+          </div>
+        );
+      }
 
       return (
         <div style={{
