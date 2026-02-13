@@ -223,21 +223,19 @@
         // 모바일 redirect 로그인 결과 처리
         auth.getRedirectResult().then((result) => {
           if (result.user) {
-            setUser(result.user);
-            setAuthLoading(false);
-            getProfileRef(result.user.uid).set({
-              displayName: result.user.displayName || '모험가',
-              photoURL: result.user.photoURL || null,
-              lastLogin: firebase.firestore.FieldValue.serverTimestamp(),
-            }, { merge: true });
+            console.log("Redirect login success:", result.user.email);
+            // 여기서 상태 업데이트 하지 않아도 onAuthStateChanged가 처리함
           }
         }).catch((err) => {
-          console.error("Redirect result error:", err);
+          console.error("Redirect login error:", err);
+          alert("로그인 실패 (Redirect): " + err.code + "\n" + err.message);
         });
 
         const unsub = auth.onAuthStateChanged((u) => {
+          console.log("Auth State Changed:", u ? "Logged in as " + u.email : "Logged out");
           setUser(u);
           setAuthLoading(false);
+
           // 로그인 시 사용자 정보 Firestore에 저장 (리더보드용)
           if (u) {
             getProfileRef(u.uid).set({
